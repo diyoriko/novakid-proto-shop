@@ -15,6 +15,10 @@ across the whole flow — no hand-assembled frame combinations.
 - **Start session** — one combined flow: class-reward popup (+40 ⭐) → dashboard →
   avatar shop (Modify / shop icon / avatar chip / tap the character) and AI-Tutor
   shop (AI Tutor tile).
+- **Try-on is free, Apply commits.** Tapping any item — including priced ones —
+  previews it on the character (skin and hair colors recolor live, hats/glasses/
+  eyes/outfits composite on the canvas). Stars are charged only when the kid taps
+  Apply; if the total exceeds the balance, the "Not enough stars" popup shows.
 - **⚙ Tweaks** (translucent chip, bottom-left) — reset between participants,
   +1000 ⭐ top-up (to unlock purchases), sound on/off, research-log export.
 - Everything is logged with timestamps: which entrance the kid used, items tried,
