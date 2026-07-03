@@ -16,7 +16,7 @@
 
 html, body {
   height: 100%;
-  background: #1c1633;
+  background: #512ED0; /* matches the stage bg so letterboxing is invisible */
   overflow: hidden;
   font-family: 'Mikado', 'Baloo 2', system-ui, sans-serif;
   -webkit-user-select: none;
@@ -37,8 +37,7 @@ html, body {
   width: 1280px;
   height: 720px;
   overflow: hidden;
-  border-radius: 8px;
-  background: #5347e0;
+  background: #512ED0;
   transform-origin: center center;
 }
 
