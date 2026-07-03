@@ -19,6 +19,9 @@ const CONFIG = {
     redpandy: "Yo, what's up?",
     barsu:    'Hmph. Fine, I will teach you.',
     duck:     'Quack-tastic to meet you!',
+    aliencat: 'Greetings, earth kid!',
+    unicorn:  'Sparkles and rainbows, hello!',
+    glazy:    'Hi sweetie! Donut worry, learning is fun!',
   },
   // Greeting after returning to the dashboard with a new tutor.
   tutorHello: 'Hello! Let’s go to AI Tutor — adventures are waiting!',
