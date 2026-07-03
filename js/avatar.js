@@ -35,6 +35,15 @@ const AVATAR = (() => {
       { tx: 224, ty: 150, src: 'assets/wear/hand-right.png' },
     ],
     handW: 54,                                 // thumb-space hand width (height by art aspect)
+    // each jacket's sleeves end elsewhere — per-outfit cuff anchors (thumb @2x space),
+    // measured from the item art; falls back to `hands` (outfit-1 calibration)
+    handsByOutfit: {
+      2: [{ tx: 35, ty: 132 }, { tx: 222, ty: 135 }],
+      3: [{ tx: 23, ty: 152 }, { tx: 232, ty: 157 }],
+      4: [{ tx: 27, ty: 142 }, { tx: 222, ty: 147 }],
+      5: [{ tx: 17, ty: 152 }, { tx: 232, ty: 157 }],
+      6: [{ tx: 33, ty: 132 }, { tx: 224, ty: 137 }],
+    },
   };
 
   // wearable anchors: item + mannequin-head insets ([top,right,bottom,left] % of the
@@ -218,7 +227,9 @@ const AVATAR = (() => {
         const p = { x: offX, y: offY, w: art.width * s, h: art.height * s };
         if (C.flip) drawFlipped(ctx, art, p);
         else ctx.drawImage(art, p.x, p.y, p.w, p.h);
-        for (const h of C.hands) {
+        const cuffs = C.handsByOutfit[look.outfitIdx + 1] || C.hands;
+        for (let hi = 0; hi < C.hands.length; hi++) {
+          const h = { ...C.hands[hi], ...cuffs[hi] };
           const hand = await loadImg(h.src);
           if (!hand) continue;
           const hw = C.handW * s, hh = hw * hand.height / hand.width;

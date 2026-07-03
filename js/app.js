@@ -273,7 +273,7 @@ function renderDashboard({ dimmed = false } = {}) {
   const isTutorFlow = state.flow === 'tutor';
   let character;
   if (isTutorFlow) {
-    character = img(CHARACTERS.tutors[state.tutor].idle, '', d.character);
+    character = img(TUTOR_FX.loopSrc(state.tutor), '', d.character);
   } else {
     character = el('div', 'abs');
     place(character, d.character);
@@ -326,6 +326,7 @@ function renderDashboard({ dimmed = false } = {}) {
       const bubble = el('div', 'speech-bubble', bubblePos);
       bubble.textContent = CONFIG.tutorHello;
       root.append(bubble);
+      TUTOR_FX.speak(state.tutor, CONFIG.tutorHello);
       setState({ tutorGreeted: false });
       setTimeout(() => bubble.remove(), 5200);
     } else if (isTutorFlow) {
@@ -353,7 +354,7 @@ function composedTutorCard(box) {
     position: 'absolute', left: '10px', top: '10px', right: '10px', height: px(innerH),
     background: '#c9bcf2', borderRadius: '16px', overflow: 'hidden',
   });
-  const t = img(CHARACTERS.tutors[state.tutor].idle, '', { x: 0, y: 0 });
+  const t = img(TUTOR_FX.loopSrc(state.tutor), '', { x: 0, y: 0 });
   Object.assign(t.style, { left: '50%', top: px(innerH * 0.16), width: '78%', transform: 'translateX(-50%)' });
   inner.append(t);
   const badge = el('div', '', {
@@ -644,6 +645,7 @@ SCREENS.tutorShop = () => {
   // back — discards the un-applied try-on (Apply commits)
   const back = img('assets/ui/back-arrow.png', '', t.back);
   tap(back, () => {
+    TUTOR_FX.stop();
     logEvent('shop-back', state.tryOnTutor ? `tutor (discarded ${state.tryOnTutor})` : 'tutor');
     setState({ tryOnTutor: null });
     go('dashboard');
@@ -695,7 +697,7 @@ SCREENS.tutorShop = () => {
   root.append(img('assets/ui/pedestal.png', '', t.pedestal));
   const preview = el('div', 'char-preview'); place(preview, t.character);
   const shown = CHARACTERS.tutors[shownTutor];
-  const pv = img(shownTutor === 'pandy' ? shown.talk : shown.idle);
+  const pv = img(TUTOR_FX.loopSrc(shownTutor));
   pv.classList.remove('abs'); pv.style.position = 'static';
   preview.append(pv);
   preview.id = 'char-preview';
@@ -709,6 +711,7 @@ SCREENS.tutorShop = () => {
   if (state.tryOnTutor) {
     const bubble = el('div', 'speech-bubble', { right: px(40), top: px(60) });
     bubble.textContent = CONFIG.tutorPhrases[state.tryOnTutor] || 'Hello!';
+    TUTOR_FX.speak(state.tryOnTutor, bubble.textContent);
     root.append(bubble);
     setTimeout(() => bubble.remove(), 4200);
   }
@@ -791,6 +794,7 @@ function preload() {
 
 document.addEventListener('contextmenu', e => e.preventDefault());
 preload();
+TUTOR_FX.preloadLoops();
 
 // resume where the session left off (e.g. accidental reload mid-test)
 const resumable = ['dashboard', 'avatarShop', 'tutorShop', 'reward'];
