@@ -17,11 +17,25 @@ const AVATAR = (() => {
   // of Casey's head, so wearables are drawn flipped and placed in mirrored coords.
   // HEAD = Casey's bald-skull box, calibrated from the mannequin's eye geometry.
   const HEAD   = { x: 152, y: 205, w: 471, h: 357 };
-  // slightly larger than the baked outfit so no old-outfit edges peek out
-  const OUTFIT = { x: 126, y: 518, w: 482, h: 686 };
-  const HANDS  = [{ x: 176, y: 843, w: 120, h: 141, src: 'assets/wear/hand-left.png' },
-                  { x: 464, y: 874, w: 120, h: 141, src: 'assets/wear/hand-right.png' }];
   const EYES   = { x: 181, y: 386, w: 237, h: 119 }; // default eye whites bbox
+
+  // outfit try-on: the base body below the jaw is wiped and the mannequin art
+  // (same thumb geometry for all 6 outfits) is drawn with ONE uniform scale,
+  // calibrated so outfit-1 lands exactly on the baked outfit. Hands are drawn
+  // back at the mannequin cuffs (thumb-space anchors).
+  const SHADOW_RGB = [107, 102, 115];         // ground shadow flat color in the base art
+  const OUTFIT_CAL = {
+    s: 2.20,                                   // thumb px -> render px
+    cx: 367.5,                                 // garment center-x in render space
+    top: 563,                                  // collar top in render space
+    ref: { x: 69, y: 15, w: 192, h: 276 },     // outfit-1 content bbox in thumb space
+    flip: false,
+    hands: [
+      { tx: 33,  ty: 144, src: 'assets/wear/hand-left.png' },
+      { tx: 224, ty: 150, src: 'assets/wear/hand-right.png' },
+    ],
+    handW: 54,                                 // thumb-space hand width (height by art aspect)
+  };
 
   // wearable anchors: item + mannequin-head insets ([top,right,bottom,left] % of the
   // 159.95x151.53 thumb) measured in Figma. Filled per category below (WEAR_ANCHORS).
@@ -85,6 +99,93 @@ const AVATAR = (() => {
     ctx.restore();
   }
 
+  const famMatch = (r, g, b, ref, tol) =>
+    (Math.abs(r - ref[0]) + Math.abs(g - ref[1]) + Math.abs(b - ref[2]) < tol) ||
+    (Math.abs(r - ref[0] * 0.89) + Math.abs(g - ref[1] * 0.89) + Math.abs(b - ref[2] * 0.92) < tol);
+
+  // Wipes the body (outfit + arms + legs) off the ctx while keeping the ground
+  // shadow, heals the feet-shaped holes in it, and returns a canvas holding the
+  // head (full rows above the jaw, per-row skin/hair spans through the chin).
+  function liftHeadAndWipeBody(ctx, skinTo, hairTo) {
+    const W = 858, H = 1216;
+    const FULL_BOT = 556, SPAN_BOT = 700, CLEAR_TOP = 500;
+    const skin = skinTo || SKIN_BASE, hair = hairTo || HAIR_BASE;
+    const id = ctx.getImageData(0, 0, W, H);
+    const d = id.data;
+
+    const head = document.createElement('canvas');
+    head.width = W; head.height = H;
+    const hctx = head.getContext('2d');
+    const hid = hctx.createImageData(W, H);
+    const hd = hid.data;
+    const JACKET = [214, 45, 0]; // baked jacket orange — never belongs to the head
+    const copyRow = (y, x0, x1) => {
+      for (let x = x0; x <= x1; x++) {
+        const o = (y * W + x) * 4;
+        if (y >= FULL_BOT && famMatch(d[o], d[o + 1], d[o + 2], JACKET, 80)) continue;
+        hd[o] = d[o]; hd[o + 1] = d[o + 1]; hd[o + 2] = d[o + 2]; hd[o + 3] = d[o + 3];
+      }
+    };
+    for (let y = 0; y < FULL_BOT; y++) copyRow(y, 0, W - 1);
+    // below the full band: copy per-row RUNS of skin/hair (chin, ears, hair tips)
+    // — never the union span, so the baked collar between them stays behind
+    let lastRuns = null, miss = 0;
+    for (let y = FULL_BOT; y < SPAN_BOT && miss < 10; y++) {
+      const runs = [];
+      let start = -1, gap = 0, skinMin = 1e9, skinMax = -1;
+      for (let x = 0; x < W; x++) {
+        const o = (y * W + x) * 4;
+        const isSkin = d[o + 3] > 40 && famMatch(d[o], d[o + 1], d[o + 2], skin, 60);
+        const hit = isSkin || (d[o + 3] > 40 && famMatch(d[o], d[o + 1], d[o + 2], hair, 50));
+        if (isSkin) { if (x < skinMin) skinMin = x; if (x > skinMax) skinMax = x; }
+        if (hit) {
+          if (start < 0) start = x;
+          gap = 0;
+        } else if (start >= 0 && ++gap > 18) {
+          runs.push([Math.max(0, start - 4), Math.min(W - 1, x - gap + 4)]);
+          start = -1; gap = 0;
+        }
+      }
+      if (start >= 0) runs.push([Math.max(0, start - 4), W - 1]);
+      // bridge gaps that lie inside the face (open mouth, eye shadows): the
+      // interior of the face is head no matter what color it is
+      const merged = [];
+      for (const r of runs) {
+        const prev = merged[merged.length - 1];
+        if (prev && r[0] > prev[1] && prev[1] >= skinMin && r[0] <= skinMax) prev[1] = r[1];
+        else merged.push(r);
+      }
+      if (merged.length) { lastRuns = merged; miss = 0; }
+      else miss++;
+      // ride the jaw outline a few rows past the last skin/hair pixels
+      for (const [a, b] of (merged.length ? merged : lastRuns || [])) copyRow(y, a, b);
+    }
+    hctx.putImageData(hid, 0, 0);
+
+    // wipe below CLEAR_TOP; the ground shadow (flat grey, lives below y=1000)
+    // is the only survivor
+    const SHADOW_TOP = 1000;
+    let sMinX = 1e9, sMinY = 1e9, sMaxX = -1, sMaxY = -1;
+    for (let y = CLEAR_TOP; y < H; y++) for (let x = 0; x < W; x++) {
+      const o = (y * W + x) * 4;
+      if (d[o + 3] <= 40) continue;
+      if (y >= SHADOW_TOP && Math.abs(d[o] - SHADOW_RGB[0]) + Math.abs(d[o + 1] - SHADOW_RGB[1]) + Math.abs(d[o + 2] - SHADOW_RGB[2]) < 24) {
+        if (x < sMinX) sMinX = x; if (x > sMaxX) sMaxX = x; if (y < sMinY) sMinY = y; if (y > sMaxY) sMaxY = y;
+      } else {
+        d[o + 3] = 0;
+      }
+    }
+    ctx.putImageData(id, 0, 0);
+    if (sMaxX > 0) { // heal the holes where the old shoes stood — a flat ellipse hugging the ground
+      const ry = Math.min((sMaxY - sMinY) / 2, 60);
+      ctx.fillStyle = `rgb(${SHADOW_RGB[0]},${SHADOW_RGB[1]},${SHADOW_RGB[2]})`;
+      ctx.beginPath();
+      ctx.ellipse((sMinX + sMaxX) / 2, sMaxY - ry - 2, (sMaxX - sMinX) / 2, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    return head;
+  }
+
   // look = { hair, skinIdx, hairColorIdx, outfitIdx, eyesIdx, hatIdx, glassesIdx }
   // *Idx are catalog indices; 0 / -1 / undefined mean "default / nothing"
   async function compose(look) {
@@ -105,27 +206,38 @@ const AVATAR = (() => {
       ctx.putImageData(id, 0, 0);
     }
 
-    // outfit overlay (covers the baked one), hands redrawn on top
+    // outfit try-on: wipe the baked body, dress the mannequin art at the
+    // calibrated uniform scale, put hands back at the cuffs, head back on top
     if (look.outfitIdx > 0) {
       const art = await loadImg(`assets/items/outfit/outfit-${look.outfitIdx + 1}.png`);
       if (art) {
-        ctx.drawImage(art, OUTFIT.x, OUTFIT.y, OUTFIT.w, OUTFIT.h);
-        for (const h of HANDS) {
+        const head = liftHeadAndWipeBody(ctx, skinTo, hairTo);
+        const C = OUTFIT_CAL, s = C.s;
+        const offX = C.cx - (C.ref.x + C.ref.w / 2) * s;
+        const offY = C.top - C.ref.y * s;
+        const p = { x: offX, y: offY, w: art.width * s, h: art.height * s };
+        if (C.flip) drawFlipped(ctx, art, p);
+        else ctx.drawImage(art, p.x, p.y, p.w, p.h);
+        for (const h of C.hands) {
           const hand = await loadImg(h.src);
           if (!hand) continue;
+          const hw = C.handW * s, hh = hw * hand.height / hand.width;
+          const hx = C.flip ? (offX + p.w - (h.tx * s) - hw) : offX + h.tx * s;
+          const hy = offY + h.ty * s;
           if (skinTo) {
             const hc = document.createElement('canvas');
             hc.width = hand.width; hc.height = hand.height;
-            const hctx = hc.getContext('2d');
-            hctx.drawImage(hand, 0, 0);
-            const hid = hctx.getImageData(0, 0, hc.width, hc.height);
+            const hcx = hc.getContext('2d');
+            hcx.drawImage(hand, 0, 0);
+            const hid = hcx.getImageData(0, 0, hc.width, hc.height);
             remap(hid.data, SKIN_BASE, SKIN_TOL, skinTo);
-            hctx.putImageData(hid, 0, 0);
-            ctx.drawImage(hc, h.x, h.y, h.w, h.h);
+            hcx.putImageData(hid, 0, 0);
+            ctx.drawImage(hc, hx, hy, hw, hh);
           } else {
-            ctx.drawImage(hand, h.x, h.y, h.w, h.h);
+            ctx.drawImage(hand, hx, hy, hw, hh);
           }
         }
+        ctx.drawImage(head, 0, 0);
       }
     }
 
@@ -161,5 +273,5 @@ const AVATAR = (() => {
     return canvas;
   }
 
-  return { compose, setAnchors };
+  return { compose, setAnchors, _cal: OUTFIT_CAL }; // _cal exposed for calibration in devtools
 })();

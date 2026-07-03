@@ -713,6 +713,7 @@ SCREENS.tutorShop = () => {
     setTimeout(() => bubble.remove(), 4200);
   }
 
+  root.append(applyButton('tutor'));
   root.append(starCounterShop(t.counter));
   armFacilitatorCorner(root);
   stage.append(root);
