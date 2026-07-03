@@ -18,6 +18,11 @@ const AVATAR = (() => {
   // HEAD = Casey's bald-skull box, calibrated from the mannequin's eye geometry.
   const HEAD   = { x: 152, y: 205, w: 471, h: 357 };
   const EYES   = { x: 181, y: 386, w: 237, h: 119 }; // default eye whites bbox
+  const HEAD_AREA = { x: 0, y: 0, w: 858, h: 646 };  // head assembly render bounds
+  // bald-skull box inside the 320x304 item thumbs (from skin-1) — shared frame
+  // for mapping thumb heads onto Casey; paid hairstyles swap the whole head
+  const THUMB_SKULL = { x: 77, y: 67, w: 164, h: 181 };
+  const HAIR_KEYS = ['default', 'short', 'ponytail'];
 
   // outfit try-on: the base body below the jaw is wiped and the mannequin art
   // (same thumb geometry for all 6 outfits) is drawn with ONE uniform scale,
@@ -108,6 +113,42 @@ const AVATAR = (() => {
     ctx.restore();
   }
 
+  async function eraseByMask(ctx, src, dest) {
+    const mask = await loadImg(src);
+    if (!mask) return false;
+    ctx.save();
+    ctx.globalCompositeOperation = 'destination-out';
+    ctx.drawImage(mask, dest.x, dest.y, dest.w, dest.h);
+    ctx.restore();
+    return true;
+  }
+
+  async function drawRecolored(ctx, src, dest, { skinTo = null, hairTo = null, flip = false } = {}) {
+    const img = await loadImg(src);
+    if (!img) return;
+    let source = img;
+    if (skinTo || hairTo) {
+      const t = document.createElement('canvas');
+      t.width = img.width; t.height = img.height;
+      const tc = t.getContext('2d');
+      tc.drawImage(img, 0, 0);
+      const id = tc.getImageData(0, 0, t.width, t.height);
+      if (skinTo) remap(id.data, SKIN_BASE, SKIN_TOL, skinTo);
+      if (hairTo) remap(id.data, HAIR_BASE, HAIR_TOL, hairTo);
+      tc.putImageData(id, 0, 0);
+      source = t;
+    }
+    if (flip) {
+      ctx.save();
+      ctx.translate(dest.x + dest.w, dest.y);
+      ctx.scale(-1, 1);
+      ctx.drawImage(source, 0, 0, dest.w, dest.h);
+      ctx.restore();
+    } else {
+      ctx.drawImage(source, dest.x, dest.y, dest.w, dest.h);
+    }
+  }
+
   const famMatch = (r, g, b, ref, tol) =>
     (Math.abs(r - ref[0]) + Math.abs(g - ref[1]) + Math.abs(b - ref[2]) < tol) ||
     (Math.abs(r - ref[0] * 0.89) + Math.abs(g - ref[1] * 0.89) + Math.abs(b - ref[2] * 0.92) < tol);
@@ -127,11 +168,19 @@ const AVATAR = (() => {
     const hctx = head.getContext('2d');
     const hid = hctx.createImageData(W, H);
     const hd = hid.data;
-    const JACKET = [214, 45, 0]; // baked jacket orange — never belongs to the head
+    const JACKET = [214, 45, 0];  // baked jacket orange — never belongs to the head
+    const OUTLINE = [24, 13, 40]; // art outline color (hair tips keep their edges)
     const copyRow = (y, x0, x1) => {
       for (let x = x0; x <= x1; x++) {
         const o = (y * W + x) * 4;
-        if (y >= FULL_BOT && famMatch(d[o], d[o + 1], d[o + 2], JACKET, 80)) continue;
+        if (y >= FULL_BOT) {
+          // below the jaw line: copy ONLY confident head pixels (skin / hair /
+          // outline) — mixed edge pixels of the baked collar stay behind
+          const ok = famMatch(d[o], d[o + 1], d[o + 2], skin, 60) ||
+                     famMatch(d[o], d[o + 1], d[o + 2], hair, 50) ||
+                     famMatch(d[o], d[o + 1], d[o + 2], OUTLINE, 45);
+          if (!ok || famMatch(d[o], d[o + 1], d[o + 2], JACKET, 80)) continue;
+        }
         hd[o] = d[o]; hd[o + 1] = d[o + 1]; hd[o + 2] = d[o + 2]; hd[o + 3] = d[o + 3];
       }
     };
@@ -150,12 +199,12 @@ const AVATAR = (() => {
         if (hit) {
           if (start < 0) start = x;
           gap = 0;
-        } else if (start >= 0 && ++gap > 18) {
-          runs.push([Math.max(0, start - 4), Math.min(W - 1, x - gap + 4)]);
+        } else if (start >= 0 && ++gap > 8) {
+          runs.push([Math.max(0, start - 2), Math.min(W - 1, x - gap + 2)]);
           start = -1; gap = 0;
         }
       }
-      if (start >= 0) runs.push([Math.max(0, start - 4), W - 1]);
+      if (start >= 0) runs.push([Math.max(0, start - 2), W - 1]);
       // bridge gaps that lie inside the face (open mouth, eye shadows): the
       // interior of the face is head no matter what color it is
       const merged = [];
@@ -215,12 +264,49 @@ const AVATAR = (() => {
       ctx.putImageData(id, 0, 0);
     }
 
+    // paid hairstyles have no characterType variant — swap the whole head with
+    // the thumbnail art (a full head incl. face), mirrored onto the skull box
+    const baseHair = look.hair || 'default';
+    let paidHairDest = null;
+    if (look.hairIdx >= 3) {
+      await eraseByMask(ctx, `assets/characters/head-${baseHair}.png`, HEAD_AREA);
+      // map the full 320x304 thumb through the shared skull frame (mirrored)
+      const sx = HEAD.w / THUMB_SKULL.w, sy = HEAD.h / THUMB_SKULL.h;
+      paidHairDest = {
+        x: HEAD.x + (THUMB_SKULL.x + THUMB_SKULL.w - 320) * sx,
+        y: HEAD.y - THUMB_SKULL.y * sy,
+        w: 320 * sx,
+        h: 304 * sy,
+      };
+      await drawRecolored(ctx, `assets/items/hair/hair-${look.hairIdx + 1}.png`, paidHairDest,
+        { skinTo, hairTo, flip: true });
+    }
+
     // outfit try-on: wipe the baked body, dress the mannequin art at the
     // calibrated uniform scale, put hands back at the cuffs, head back on top
     if (look.outfitIdx > 0) {
       const art = await loadImg(`assets/items/outfit/outfit-${look.outfitIdx + 1}.png`);
       if (art) {
         const head = liftHeadAndWipeBody(ctx, skinTo, hairTo);
+        {
+          // clip the lifted pixels to the true head silhouette: the exported
+          // head render for free hairstyles, the hair-thumb alpha for paid ones
+          const hctx = head.getContext('2d');
+          hctx.save();
+          hctx.globalCompositeOperation = 'destination-in';
+          if (paidHairDest) {
+            const m = await loadImg(`assets/items/hair/${'hair-' + (look.hairIdx + 1)}.png`);
+            if (m) {
+              hctx.translate(paidHairDest.x + paidHairDest.w, paidHairDest.y);
+              hctx.scale(-1, 1);
+              hctx.drawImage(m, 0, 0, paidHairDest.w, paidHairDest.h);
+            }
+          } else {
+            const m = await loadImg(`assets/characters/head-${baseHair}.png`);
+            if (m) hctx.drawImage(m, HEAD_AREA.x, HEAD_AREA.y, HEAD_AREA.w, HEAD_AREA.h);
+          }
+          hctx.restore();
+        }
         const C = OUTFIT_CAL, s = C.s;
         const offX = C.cx - (C.ref.x + C.ref.w / 2) * s;
         const offY = C.top - C.ref.y * s;
@@ -284,5 +370,27 @@ const AVATAR = (() => {
     return canvas;
   }
 
-  return { compose, setAnchors, _cal: OUTFIT_CAL }; // _cal exposed for calibration in devtools
+  // idle blink: periodically covers the eye zone with a skin-colored eyelid band.
+  // Skipped when glasses are worn (they are drawn over the eyes).
+  function attachBlink(canvas, look) {
+    if (look.glassesIdx >= 0) return;
+    const ctx = canvas.getContext('2d');
+    const pad = 10;
+    const zone = { x: EYES.x - pad, y: EYES.y - pad, w: EYES.w + pad * 2, h: EYES.h + pad * 2 };
+    const skin = SKIN_TARGETS[look.skinIdx] || SKIN_BASE;
+    const timer = setInterval(() => {
+      if (!document.contains(canvas)) { clearInterval(timer); return; }
+      const saved = ctx.getImageData(zone.x, zone.y, zone.w, zone.h);
+      ctx.fillStyle = `rgb(${skin[0]},${skin[1]},${skin[2]})`;
+      ctx.beginPath();
+      ctx.ellipse(EYES.x + EYES.w * 0.28, EYES.y + EYES.h / 2, EYES.w * 0.26, EYES.h * 0.52, 0, 0, Math.PI * 2);
+      ctx.ellipse(EYES.x + EYES.w * 0.74, EYES.y + EYES.h / 2, EYES.w * 0.26, EYES.h * 0.52, 0, 0, Math.PI * 2);
+      ctx.fill();
+      setTimeout(() => {
+        if (document.contains(canvas)) ctx.putImageData(saved, zone.x, zone.y);
+      }, 130);
+    }, 3400 + Math.random() * 1400);
+  }
+
+  return { compose, setAnchors, attachBlink, _cal: OUTFIT_CAL }; // _cal exposed for calibration in devtools
 })();
