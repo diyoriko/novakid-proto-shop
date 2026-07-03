@@ -177,7 +177,6 @@ function openFacMenu() {
       this.textContent = `Sound: ${state.muted ? 'off' : 'on'}`;
       if (!state.muted) SFX.equip();
     }),
-    mk('Facilitator screen', () => { setState({ screen: 'facilitator' }); go('facilitator'); }),
     mk('Close', () => m.remove()),
   );
   stage.append(m);
