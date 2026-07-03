@@ -3,9 +3,16 @@
 // Tweaks sound toggle; the speech bubble stays on screen as subtitles.
 
 const TUTOR_FX = (() => {
-  // Masha's own animation GIFs, optimized for web (assets/characters/loop-*.gif)
+  // Masha's own animation loops, optimized for web. Animated WebP when the
+  // browser supports it (≈half the size), GIF otherwise.
+  const WEBP_OK = (() => {
+    try {
+      return document.createElement('canvas').toDataURL('image/webp').startsWith('data:image/webp');
+    } catch (e) { return false; }
+  })();
+  const EXT = WEBP_OK ? 'webp' : 'gif';
   const LOOPS = ['pandy', 'redpandy', 'barsu', 'duck', 'aliencat', 'unicorn', 'glazy']
-    .reduce((m, k) => (m[k] = `assets/characters/loop-${k}.gif`, m), {});
+    .reduce((m, k) => (m[k] = `assets/characters/loop-${k}.${EXT}`, m), {});
 
   // voice personality per character: pitch/rate shape the character read
   const VOICES = {
@@ -30,9 +37,36 @@ const TUTOR_FX = (() => {
   }
   if (window.speechSynthesis) speechSynthesis.onvoiceschanged = () => { voiceCache = null; };
 
-  function speak(key, phrase) {
-    if (!window.speechSynthesis || (typeof state !== 'undefined' && state.muted)) return;
-    speechSynthesis.cancel();
+  // pre-recorded character voice clips (sounds/<key>-<slot>.mp3); slot is
+  // 'greet' (try-on) or 'hello' (back on the dashboard)
+  const clips = {};
+  let playing = null;
+  function clip(key, slot) {
+    const src = `sounds/${key}-${slot}.mp3`;
+    if (!(src in clips)) {
+      const a = new Audio(src);
+      a.preload = 'auto';
+      clips[src] = a;
+      a.onerror = () => { clips[src] = null; }; // no file — Web Speech fallback
+    }
+    return clips[src];
+  }
+
+  function speak(key, phrase, slot = 'greet') {
+    if (typeof state !== 'undefined' && state.muted) return;
+    stop();
+    const a = clip(key, slot);
+    if (a) {
+      a.currentTime = 0;
+      playing = a;
+      a.play().catch(() => speakTTS(key, phrase));
+      return;
+    }
+    speakTTS(key, phrase);
+  }
+
+  function speakTTS(key, phrase) {
+    if (!window.speechSynthesis) return;
     const u = new SpeechSynthesisUtterance(phrase);
     const p = VOICES[key] || { pitch: 1, rate: 1 };
     u.pitch = p.pitch;
@@ -45,6 +79,7 @@ const TUTOR_FX = (() => {
 
   function stop() {
     if (window.speechSynthesis) speechSynthesis.cancel();
+    if (playing) { playing.pause(); playing = null; }
   }
 
   // looped animation src for a tutor (falls back to the static pose)

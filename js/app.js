@@ -167,13 +167,14 @@ function background(withWedge) {
   return bg;
 }
 
-/* ---------- facilitator entry: translucent Tweaks chip (bottom-left) ---------- */
-function armFacilitatorCorner(root) {
-  const tweaks = el('div', 'tweaks-chip');
-  tweaks.textContent = '⚙ Tweaks';
-  tweaks.addEventListener('click', openFacMenu);
-  root.append(tweaks);
-}
+/* ---------- facilitator entry: persistent translucent Tweaks chip ----------
+   Lives on #stage-wrap (fixed, outside the cleared stage), so it is visible on
+   EVERY screen, in every browser, at every window size. */
+const tweaksChip = el('div', 'tweaks-chip');
+tweaksChip.textContent = '⚙ Tweaks';
+tweaksChip.addEventListener('click', () => openFacMenu());
+document.getElementById('stage-wrap').append(tweaksChip);
+function armFacilitatorCorner() { /* chip is persistent now */ }
 
 function openFacMenu() {
   if (document.querySelector('.fac-menu')) return;
@@ -196,7 +197,7 @@ function openFacMenu() {
     }),
     mk('Close', () => m.remove()),
   );
-  stage.append(m);
+  document.getElementById('stage-wrap').append(m);
 }
 
 /* ============================ screens ============================ */
@@ -218,13 +219,46 @@ SCREENS.facilitator = () => {
   p.textContent = 'One combined flow: the kid starts on the class-reward popup, explores the dashboard, and can customize both the avatar (Modify / shop / avatar / tap the character) and the AI Tutor (the AI Tutor tile). Everything is logged. During the test, the translucent “⚙ Tweaks” chip in the bottom-left corner opens the menu: reset, star top-up, sound, log export.';
   const a = el('button', 'btn a'); a.textContent = 'Start session';
   const r = el('button', 'btn ghost'); r.textContent = `Reset session · balance ${state.balance} · log ${state.log.length} events`;
-  const x = el('button', 'btn ghost'); x.textContent = 'Export research log (JSON)';
+  const x = el('button', 'btn ghost'); x.textContent = 'Export log: JSON · CSV';
   a.onclick = () => { setState({ flow: 'both' }); logEvent('session-start', 'combined avatar+tutor'); go('reward'); };
   r.onclick = () => { resetState(); go('facilitator'); };
-  x.onclick = () => exportLog();
+  x.onclick = () => { exportLog(); exportLogCSV(); };
   f.append(h, p, a, r, x);
+  if (state.log.length > 1) f.append(sessionSummary());
   stage.append(f);
 };
+
+// human-readable digest of the current session's research log
+function sessionSummary() {
+  const box = el('div', 'fac-summary');
+  const L = state.log;
+  const count = (ev, det) => L.filter(e => e.event === ev && (!det || e.detail.startsWith(det))).length;
+  const list = (ev) => {
+    const m = {};
+    L.filter(e => e.event === ev).forEach(e => { const k = e.detail.split(' ')[0]; m[k] = (m[k] || 0) + 1; });
+    return Object.entries(m).map(([k, n]) => `${k}×${n}`).join(', ') || '—';
+  };
+  const t0 = new Date(L[0].t), t1 = new Date(L[L.length - 1].t);
+  const mins = Math.max(0, Math.round((t1 - t0) / 6000) / 10);
+  box.innerHTML =
+    `<b>Session summary</b> · ${mins} min · ${L.length} events<br>` +
+    `Entrances: <b>${list('entrance')}</b><br>` +
+    `Try-ons: avatar <b>${count('try-on')}</b> (${list('try-on')}), tutors <b>${count('tutor-tryon')}</b><br>` +
+    `Applied: <b>${count('apply')}</b> · failed (not enough ⭐): <b>${count('apply-failed')}</b> · tutor chosen: <b>${list('tutor-chosen') !== '—' ? list('tutor-chosen') : (L.filter(e=>e.event==='apply'&&e.detail.startsWith('tutor')).map(e=>e.detail.split(' ')[1].replace(',', '')).join(', ') || '—')}</b><br>` +
+    `Popups closed: <b>${count('popup-close')}</b> · balance now: <b>${state.balance}⭐</b>`;
+  return box;
+}
+
+function exportLogCSV() {
+  const rows = [['time', 'event', 'detail'], ...state.log.map(e => [e.t, e.event, e.detail])];
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `session-log-${Date.now()}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
 
 /* ---------- class reward popup over dimmed dashboard ---------- */
 SCREENS.reward = () => {
@@ -274,6 +308,8 @@ function renderDashboard({ dimmed = false } = {}) {
   let character;
   if (isTutorFlow) {
     character = img(TUTOR_FX.loopSrc(state.tutor), '', d.character);
+    Object.assign(character.style, { objectFit: 'contain', objectPosition: 'bottom' });
+    character.classList.add('breathe');
   } else {
     character = el('div', 'abs');
     place(character, d.character);
@@ -326,7 +362,7 @@ function renderDashboard({ dimmed = false } = {}) {
       const bubble = el('div', 'speech-bubble', bubblePos);
       bubble.textContent = CONFIG.tutorHello;
       root.append(bubble);
-      TUTOR_FX.speak(state.tutor, CONFIG.tutorHello);
+      TUTOR_FX.speak(state.tutor, CONFIG.tutorHello, 'hello');
       setState({ tutorGreeted: false });
       setTimeout(() => bubble.remove(), 5200);
     } else if (isTutorFlow) {
@@ -355,7 +391,10 @@ function composedTutorCard(box) {
     background: '#c9bcf2', borderRadius: '16px', overflow: 'hidden',
   });
   const t = img(TUTOR_FX.loopSrc(state.tutor), '', { x: 0, y: 0 });
-  Object.assign(t.style, { left: '50%', top: px(innerH * 0.16), width: '78%', transform: 'translateX(-50%)' });
+  Object.assign(t.style, {
+    left: '50%', bottom: '10px', top: 'auto', width: '82%', height: px(innerH - 24),
+    transform: 'translateX(-50%)', objectFit: 'contain', objectPosition: 'bottom',
+  });
   inner.append(t);
   const badge = el('div', '', {
     position: 'absolute', right: '18px', top: '18px', width: '30px', height: '30px',
@@ -487,6 +526,7 @@ function currentLook(useDraft) {
   const idx = cat => useDraft ? effectiveIndex(cat) : selectedIndex(cat);
   return {
     hair: useDraft ? previewHair() : state.hair,
+    hairIdx: Math.max(idx('hair'), 0),
     skinIdx: Math.max(idx('skin'), 0),
     hairColorIdx: Math.max(idx('haircolor'), 0),
     outfitIdx: Math.max(idx('outfit'), 0),
@@ -498,11 +538,14 @@ function currentLook(useDraft) {
 
 // async-fills a container with the composed avatar canvas
 function renderAvatarInto(container, useDraft) {
-  AVATAR.compose(currentLook(useDraft)).then(canvas => {
+  const look = currentLook(useDraft);
+  AVATAR.compose(look).then(canvas => {
     canvas.style.width = '100%';
     canvas.style.height = '100%';
     container.innerHTML = '';
     container.append(canvas);
+    container.classList.add('breathe');
+    AVATAR.attachBlink(canvas, look);
   });
   return container;
 }
@@ -698,6 +741,7 @@ SCREENS.tutorShop = () => {
   const preview = el('div', 'char-preview'); place(preview, t.character);
   const shown = CHARACTERS.tutors[shownTutor];
   const pv = img(TUTOR_FX.loopSrc(shownTutor));
+  pv.classList.add('breathe');
   pv.classList.remove('abs'); pv.style.position = 'static';
   preview.append(pv);
   preview.id = 'char-preview';
