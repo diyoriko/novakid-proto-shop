@@ -1,0 +1,414 @@
+/* Novakid — interactive research prototype: customization shop + AI tutor.
+   Stage is a fixed 1280x720 canvas scaled to fit the viewport. */
+
+@font-face {
+  font-family: 'Mikado';
+  src: url('../fonts/Mikado-Web-Regular.woff2') format('woff2');
+  font-weight: 400;
+}
+@font-face {
+  font-family: 'Mikado';
+  src: url('../fonts/Mikado-Web-Bold.woff2') format('woff2');
+  font-weight: 700;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  background: #1c1633;
+  overflow: hidden;
+  font-family: 'Mikado', 'Baloo 2', system-ui, sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+#stage-wrap {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+
+#stage {
+  position: relative;
+  width: 1280px;
+  height: 720px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #5347e0;
+  transform-origin: center center;
+}
+
+.screen {
+  position: absolute;
+  inset: 0;
+}
+
+/* ---------- shared background ---------- */
+.bg-swirl {
+  position: absolute;
+  inset: 0;
+  background: #512ED0;
+  overflow: hidden;
+}
+.bg-swirl > img.swirl {
+  /* real Figma 'back line' vector, exported frame-clipped 1280x720 */
+  position: absolute;
+  left: 0; top: 0;
+  width: 1280px; height: 720px;
+  pointer-events: none;
+}
+.bg-wedge {
+  /* yellow ground wedge bottom-right (dashboard) */
+  position: absolute;
+  right: 0; bottom: 0;
+  width: 370px; height: 300px;
+  background: #ffd53d;
+  clip-path: polygon(100% 0, 100% 100%, 0 100%);
+  pointer-events: none;
+}
+
+/* ---------- generic clickable ---------- */
+.tap {
+  cursor: pointer;
+  transition: transform .12s ease;
+}
+.tap:active { transform: scale(.95); }
+
+.abs { position: absolute; }
+img.abs { display: block; }
+
+/* ---------- dashboard ---------- */
+.dash-label-name {
+  position: absolute;
+  color: #fff;
+  font-weight: 700;
+  font-size: 30px;
+  text-align: center;
+}
+.speech-bubble {
+  position: absolute;
+  max-width: 300px;
+  background: #fff;
+  border-radius: 18px;
+  padding: 14px 18px;
+  font-weight: 700;
+  font-size: 19px;
+  color: #2b2350;
+  box-shadow: 0 4px 14px rgba(20,10,60,.35);
+  animation: bubble-pop .28s ease;
+  z-index: 30;
+}
+.speech-bubble::after {
+  content: '';
+  position: absolute;
+  right: 34px;
+  bottom: -10px;
+  border: 11px solid transparent;
+  border-top-color: #fff;
+  border-bottom: 0;
+}
+@keyframes bubble-pop {
+  from { transform: scale(.6); opacity: 0; }
+  to   { transform: scale(1);  opacity: 1; }
+}
+
+/* star counter — dashboard white pill (live number, Mikado Bold 22 #210A74) */
+.star-counter {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 56px;
+  background: #fff;
+  border-radius: 41px;
+  padding: 0 20px 0 12px;
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 1.1px;
+  color: #210A74;
+  box-shadow: 0 3px 13px rgba(57,42,119,.25);
+}
+.star-counter img { width: 39px; height: 39px; }
+
+/* star counter — shop gold-star badge with the number inside */
+.star-counter-shop {
+  position: absolute;
+  width: 124px; height: 92px;
+}
+.star-counter-shop img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.star-counter-shop span {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: 22px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 25px;
+  color: #fff;
+  -webkit-text-stroke: 1.5px #4a2d00;
+  paint-order: stroke fill;
+}
+
+/* ---------- shop ---------- */
+.shop-panel {
+  position: absolute;
+  left: 239px; top: 112px;
+  width: 685px; height: 608px;
+  background: #281D64;
+}
+.shop-panel::after {
+  /* bottom fade like Rectangle 46378 in the Figma frames */
+  content: '';
+  position: absolute;
+  left: 24px; right: 24px; bottom: 0;
+  height: 120px;
+  background: linear-gradient(transparent, #281D64 78%);
+  pointer-events: none;
+  z-index: 4;
+}
+
+.cat-rail {
+  position: absolute;
+  left: 139px; top: 113px;
+  width: 110px;
+  padding: 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #29195E;
+  border-radius: 20px 0 0 20px;
+  z-index: 5;
+}
+.cat-btn {
+  width: 86px; height: 66px;
+  margin-left: 12px;
+  display: grid;
+  place-items: center;
+  background: #B689FF;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: transform .12s ease;
+}
+.cat-btn:active { transform: scale(.93); }
+.cat-btn.active { background: #E6D5FF; }
+.cat-btn img { max-width: 58px; max-height: 52px; object-fit: contain; }
+
+.item-grid {
+  position: absolute;
+  left: 281px; top: 155px;
+  display: grid;
+  grid-template-columns: repeat(3, 181px);
+  grid-auto-rows: 223px;
+  column-gap: 26px;
+  row-gap: 26px;
+}
+.item-card {
+  position: relative;
+  background: #eef3ff;
+  border-radius: 19px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform .12s ease;
+}
+.item-card:active { transform: scale(.95); }
+.item-card .art {
+  position: absolute;
+  left: 10px; top: 10px;
+  width: 161px; height: 152px;
+  object-fit: contain;
+}
+.item-card .dot {
+  position: absolute;
+  left: 50%; bottom: 24px;
+  width: 34px; height: 34px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: #c6d3f2;
+}
+.item-card .tick {
+  position: absolute;
+  left: 50%; bottom: 18px;
+  transform: translateX(-50%);
+  width: 48px; height: 44px;
+}
+.item-card .price {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 50px;
+  background: #ff7b7d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 23px;
+  color: #17123a;
+}
+.item-card .price img { width: 26px; height: 26px; }
+
+/* character preview zone (shop) */
+.pedestal { position: absolute; left: 983px; top: 302px; width: 276px; pointer-events: none; }
+.char-preview { position: absolute; left: 1009px; top: 195px; width: 282px; height: 399px; pointer-events: none; }
+.char-preview img { width: 100%; height: 100%; object-fit: contain; }
+
+.name-chip {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #17123a;
+  color: #fff;
+  border-radius: 14px;
+  padding: 10px 20px;
+  font-weight: 700;
+  font-size: 24px;
+  animation: bubble-pop .2s ease;
+}
+.name-chip .chk {
+  width: 28px; height: 28px;
+  background: #3ddc74;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 18px;
+}
+
+/* ---------- popups ---------- */
+.overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 8, 40, .55);
+  z-index: 40;
+  animation: fade-in .18s ease;
+}
+@keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+.popup {
+  position: absolute;
+  z-index: 41;
+  animation: bubble-pop .22s ease;
+}
+.popup img.frame { display: block; }
+.hotspot { position: absolute; cursor: pointer; }
+
+/* live "not enough stars" popup with real item art */
+.popup-card {
+  position: absolute;
+  background: #fbd3d4;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+}
+.popup-card img { width: 80%; height: 70%; object-fit: contain; }
+
+/* ---------- loading screen ---------- */
+.loading-screen {
+  position: absolute;
+  inset: 0;
+  background: #5347e0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+}
+.loading-inner { position: relative; width: 420px; text-align: center; }
+.loading-bar {
+  width: 320px; height: 22px;
+  margin: 0 auto;
+  background: #17123a;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 3px solid #17123a;
+}
+.loading-bar .fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #0e8f7e, #35d0ba);
+  border-radius: 999px;
+  transition: width .3s linear;
+}
+.loading-walker {
+  position: absolute;
+  top: -96px;
+  left: 20px;
+  width: 92px;
+  transition: left .3s linear;
+}
+.loading-text {
+  margin-top: 16px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 20px;
+}
+
+/* ---------- facilitator screen ---------- */
+.fac {
+  position: absolute; inset: 0;
+  background: #17123a;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  z-index: 100;
+}
+.fac h1 { font-size: 34px; }
+.fac p  { font-size: 17px; color: #b9b3dd; max-width: 560px; text-align: center; line-height: 1.45; }
+.fac .btn {
+  width: 420px;
+  padding: 20px;
+  border-radius: 16px;
+  border: 0;
+  font: inherit;
+  font-weight: 700;
+  font-size: 22px;
+  cursor: pointer;
+  color: #fff;
+}
+.fac .btn.a { background: #b01aff; }
+.fac .btn.b { background: #2f6bff; }
+.fac .btn.c { background: #0fa968; }
+.fac .btn.ghost { background: transparent; border: 2px solid #4a4177; font-size: 17px; padding: 12px; width: 420px; }
+
+/* translucent facilitator entry chip, bottom-left */
+.tweaks-chip {
+  position: absolute;
+  left: 14px; bottom: 12px;
+  z-index: 111;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(23, 18, 58, .35);
+  color: rgba(255, 255, 255, .55);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity .15s ease, background .15s ease;
+}
+.tweaks-chip:hover { background: rgba(23,18,58,.8); color: #fff; }
+
+/* facilitator quick menu (Tweaks chip or triple-tap top-left corner) */
+.fac-menu {
+  position: absolute;
+  left: 16px; top: 16px;
+  z-index: 120;
+  background: #17123a;
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.fac-menu button {
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  background: #4a4177;
+  border: 0;
+  border-radius: 9px;
+  padding: 10px 16px;
+  cursor: pointer;
+}
