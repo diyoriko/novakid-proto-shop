@@ -372,6 +372,30 @@ img.abs { display: block; }
 .fac .btn.c { background: #0fa968; }
 .fac .btn.ghost { background: transparent; border: 2px solid #4a4177; font-size: 17px; padding: 12px; width: 420px; }
 
+/* Apply button — commits try-ons, styled like the Modify pill */
+.apply-btn {
+  position: absolute;
+  left: 1023px; top: 645px;
+  min-width: 204px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 22px;
+  background: #b01aff;
+  border: 2px solid #17123a;
+  border-radius: 999px;
+  color: #fff;
+  font-weight: 700;
+  font-size: 24px;
+  box-shadow: 0 4px 0 rgba(23, 18, 58, .55);
+  cursor: pointer;
+  z-index: 20;
+  animation: bubble-pop .2s ease;
+}
+.apply-btn img { width: 28px; height: 28px; }
+
 /* translucent facilitator entry chip, bottom-left */
 .tweaks-chip {
   position: absolute;

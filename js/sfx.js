@@ -75,11 +75,11 @@ const SFX = (() => {
     // popup opens: round little pop
     popup()  { drop(300, 520, { dur: 0.07, vol: 0.05 });
                note(P.G5, { delay: 0.03, dur: 0.16, vol: 0.03 }); },
-    // tutor chosen: warm slow harp roll — soft major chord, nothing hurried
-    choose() { note(262,  { dur: 0.7, vol: 0.045 });             // C4 warm base
-               note(P.C5, { delay: 0.16, dur: 0.6, vol: 0.05 });
-               note(P.E5, { delay: 0.34, dur: 0.6, vol: 0.05 });
-               note(P.G5, { delay: 0.52, dur: 0.9, vol: 0.055 }); },
+    // tutor chosen: light music-box sparkle — quick high major arpeggio, airy
+    choose() { note(P.C6, { dur: 0.18, vol: 0.045 });
+               note(P.E6, { delay: 0.07, dur: 0.18, vol: 0.045 });
+               note(P.G6, { delay: 0.14, dur: 0.22, vol: 0.05 });
+               note(2093, { delay: 0.24, dur: 0.4, vol: 0.04 }); },  // C7 gentle ping
     // speech bubble: friendly rising "du-du?"
     hello()  { note(P.G5, { dur: 0.18, vol: 0.06, bend: 30 });
                note(P.A5, { delay: 0.12, dur: 0.26, vol: 0.07, bend: 40 }); },

@@ -86,10 +86,26 @@ function tap(node, handler) {
 
 function clearStage() { stage.innerHTML = ''; }
 
-/* ---------- stage scaling ---------- */
+/* ---------- stage scaling + yellow-wedge bleed into letterbox bands ---------- */
+const bleed = el('div', '', {
+  position: 'fixed', inset: '0', background: '#ffd53d',
+  pointerEvents: 'none', display: 'none',
+});
+document.getElementById('stage-wrap').prepend(bleed);
+
 function fitStage() {
-  const s = Math.min(window.innerWidth / 1280, window.innerHeight / 720);
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const s = Math.min(vw / 1280, vh / 720);
   stage.style.transform = `scale(${s})`;
+  // continue the dashboard wedge diagonal beyond the stage to the viewport edges,
+  // so the yellow reaches the real bottom of the window (as in the design)
+  const left = (vw - 1280 * s) / 2, top = (vh - 720 * s) / 2;
+  const x1 = left + 910 * s,  y1 = top + 720 * s;   // wedge diagonal: bottom-left point
+  const x2 = left + 1280 * s, y2 = top + 420 * s;   // wedge diagonal: top-right point
+  const m = (y2 - y1) / (x2 - x1);
+  const xAtBottom = x1 + (vh - y1) / m;
+  const yAtRight = y1 + m * (vw - x1);
+  bleed.style.clipPath = `polygon(${xAtBottom}px ${vh}px, ${vw}px ${yAtRight}px, ${vw}px ${vh}px)`;
 }
 window.addEventListener('resize', fitStage);
 fitStage();
@@ -147,6 +163,7 @@ function background(withWedge) {
   swirl.draggable = false;
   bg.append(swirl);
   if (withWedge) bg.append(el('div', 'bg-wedge'));
+  bleed.style.display = withWedge ? 'block' : 'none';
   return bg;
 }
 
@@ -189,6 +206,7 @@ const SCREENS = {};
 function go(name, arg) {
   setState({ screen: name });
   clearStage();
+  bleed.style.display = 'none'; // screens with the wedge re-enable it in background()
   SCREENS[name](arg);
 }
 
@@ -251,12 +269,16 @@ function renderDashboard({ dimmed = false } = {}) {
   root.append(img('assets/ui/card-homework.png', '', d.cardHomework));
   root.append(img('assets/ui/card-media.png', '', d.cardMedia));
 
-  // right-side character: Casey (flow A) or the chosen tutor (flow B)
+  // right-side character: Casey with everything applied (flow A/C) or the tutor (flow B)
   const isTutorFlow = state.flow === 'tutor';
-  const charSrc = isTutorFlow
-    ? CHARACTERS.tutors[state.tutor].idle
-    : CHARACTERS.casey[state.hair];
-  const character = img(charSrc, '', d.character);
+  let character;
+  if (isTutorFlow) {
+    character = img(CHARACTERS.tutors[state.tutor].idle, '', d.character);
+  } else {
+    character = el('div', 'abs');
+    place(character, d.character);
+    renderAvatarInto(character, false);
+  }
   root.append(character);
 
   if (!isTutorFlow) {
@@ -355,9 +377,14 @@ SCREENS.avatarShop = () => {
   root.append(background(false));
   const s = L.shop;
 
-  // back
+  // back — discards any un-applied try-ons
   const back = img('assets/ui/back-arrow.png', '', s.back);
-  tap(back, () => { logEvent('shop-back'); go('dashboard'); });
+  tap(back, () => {
+    const pending = pendingChanges().diff.length;
+    logEvent('shop-back', pending ? `discarded ${pending} pending` : '');
+    setState({ draftSelected: null, draftHair: null });
+    go('dashboard');
+  });
   root.append(back);
 
   // panel + top tabs (real Figma render; Frame/Flag are stubs — logged only)
@@ -384,37 +411,39 @@ SCREENS.avatarShop = () => {
   });
   root.append(rail);
 
-  // item grid
+  // item grid — taps are free try-ons; stars are only charged on Apply
   const grid = el('div', 'item-grid');
   const cat = SHOP_CATALOG[state.shopCategory];
   const ownedList = state.ownedExtra[state.shopCategory] || [];
-  const selectedIdx = selectedIndex(state.shopCategory);
+  const shownIdx = effectiveIndex(state.shopCategory);
   cat.items.forEach((item, i) => {
     const card = el('div', 'item-card');
     card.append(img(item.art, 'art'));
     const isOwned = !item.price || ownedList.includes(i);
-    if (i === selectedIdx) {
-      card.append(tickMark());
-    } else if (isOwned) {
-      card.append(el('div', 'dot'));
-    } else {
+    if (!isOwned) {
       const pr = el('div', 'price');
       pr.append(img('assets/ui/star-icon.png'), Object.assign(el('span'), { textContent: CONFIG.itemPrice }));
       pr.querySelector('img').classList.remove('abs');
       pr.querySelector('img').style.position = 'static';
       card.append(pr);
     }
-    tap(card, () => onShopItem(item, i, isOwned));
+    if (i === shownIdx) {
+      const t = tickMark();
+      if (!isOwned) t.style.bottom = '58px'; // sit above the price bar
+      card.append(t);
+    } else if (isOwned) {
+      card.append(el('div', 'dot'));
+    }
+    tap(card, () => onShopItem(item, i));
     grid.append(card);
   });
   root.append(grid);
+  root.append(applyButton('avatar'));
 
-  // character preview
+  // character preview — shows the DRAFT look (try-ons included)
   root.append(img('assets/ui/pedestal.png', '', s.pedestal));
   const preview = el('div', 'char-preview'); place(preview, s.character);
-  preview.append(img(CHARACTERS.casey[state.hair]));
-  preview.querySelector('img').classList.remove('abs');
-  preview.querySelector('img').style.position = 'static';
+  renderAvatarInto(preview, true);
   preview.id = 'char-preview';
   root.append(preview);
 
@@ -434,7 +463,7 @@ function tickMark() {
   return t;
 }
 
-// currently selected item index in a category (purchases override the default)
+// committed selection index in a category (purchases override the default)
 function selectedIndex(catKey) {
   if (state.selectedExtra[catKey] !== undefined) return state.selectedExtra[catKey];
   const items = SHOP_CATALOG[catKey].items;
@@ -442,39 +471,144 @@ function selectedIndex(catKey) {
   return items.findIndex(it => it.state === 'current'); // -1 = nothing (hat/glasses)
 }
 
+// what the kid currently sees: draft try-on wins over the committed selection
+function effectiveIndex(catKey) {
+  if (state.draftSelected && state.draftSelected[catKey] !== undefined) return state.draftSelected[catKey];
+  return selectedIndex(catKey);
+}
+
+function previewHair() {
+  return state.draftHair || state.hair;
+}
+
+// everything currently on the avatar, as catalog indices for the compositor
+function currentLook(useDraft) {
+  const idx = cat => useDraft ? effectiveIndex(cat) : selectedIndex(cat);
+  return {
+    hair: useDraft ? previewHair() : state.hair,
+    skinIdx: Math.max(idx('skin'), 0),
+    hairColorIdx: Math.max(idx('haircolor'), 0),
+    outfitIdx: Math.max(idx('outfit'), 0),
+    eyesIdx: Math.max(idx('eyes'), 0),
+    hatIdx: idx('hat'),         // -1 = bare head
+    glassesIdx: idx('glasses'), // -1 = no glasses
+  };
+}
+
+// async-fills a container with the composed avatar canvas
+function renderAvatarInto(container, useDraft) {
+  AVATAR.compose(currentLook(useDraft)).then(canvas => {
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    container.innerHTML = '';
+    container.append(canvas);
+  });
+  return container;
+}
+
+// pending diff: categories whose draft differs from committed + total cost of unowned picks
+function pendingChanges() {
+  const diff = [];
+  let cost = 0;
+  Object.entries(state.draftSelected || {}).forEach(([catKey, idx]) => {
+    if (idx === selectedIndex(catKey)) return;
+    const item = SHOP_CATALOG[catKey].items[idx];
+    const owned = !item.price || (state.ownedExtra[catKey] || []).includes(idx);
+    diff.push({ catKey, idx, item, owned });
+    if (!owned) cost += CONFIG.itemPrice;
+  });
+  return { diff, cost };
+}
+
 function bouncePreview() {
   const p = document.getElementById('char-preview');
   if (p) p.animate([{ transform: 'scale(.92)' }, { transform: 'scale(1.04)' }, { transform: 'scale(1)' }], { duration: 320, easing: 'ease-out' });
 }
 
-function onShopItem(item, index, isOwned) {
+// tap = free try-on; nothing is charged here
+function onShopItem(item, index) {
   const cat = state.shopCategory;
-  if (isOwned) {
-    if (index === selectedIndex(cat)) { logEvent('item-tap', `${cat} #${index + 1} (already selected)`); return; }
-    const patch = { selectedExtra: { ...state.selectedExtra, [cat]: index } };
-    // only the free hairstyles have on-character art — the character updates for those
-    if (item.equip) patch.hair = item.equip;
-    setState(patch);
-    logEvent('select-item', `${cat} #${index + 1}`);
-    SFX.equip();
-    go('avatarShop');
-    bouncePreview();
+  if (index === effectiveIndex(cat)) { logEvent('item-tap', `${cat} #${index + 1} (already shown)`); return; }
+  const patch = { draftSelected: { ...(state.draftSelected || {}), [cat]: index } };
+  if (cat === 'hair') patch.draftHair = item.equip || state.hair; // paid hairs have no on-character art
+  setState(patch);
+  logEvent('try-on', `${cat} #${index + 1}${item.price ? ' (paid)' : ''}`);
+  SFX.equip();
+  go('avatarShop');
+  bouncePreview();
+}
+
+// Apply button — commits draft try-ons, charging stars for unowned items
+function applyButton(kind) {
+  const wrap = el('div', 'apply-btn-wrap');
+  let cost = 0, visible = false;
+  if (kind === 'avatar') {
+    const p = pendingChanges();
+    cost = p.cost; visible = p.diff.length > 0;
+  } else {
+    visible = !!state.tryOnTutor && state.tryOnTutor !== state.tutor;
+    if (visible) {
+      const entry = TUTOR_CATALOG.find(t => t.key === state.tryOnTutor);
+      const owned = !entry.price || (state.ownedExtra.tutor || []).includes(entry.key);
+      cost = owned ? 0 : CONFIG.itemPrice;
+    }
+  }
+  if (!visible) { wrap.style.display = 'none'; return wrap; }
+  const b = el('div', 'apply-btn');
+  b.append(Object.assign(el('span'), { textContent: 'Apply' }));
+  if (cost > 0) {
+    const star = img('assets/ui/star-icon.png');
+    star.classList.remove('abs'); star.style.position = 'static';
+    b.append(star, Object.assign(el('span'), { textContent: cost }));
+  }
+  tap(b, () => kind === 'avatar' ? applyAvatar() : applyTutor());
+  wrap.append(b);
+  return wrap;
+}
+
+function applyAvatar() {
+  const { diff, cost } = pendingChanges();
+  if (!diff.length) return;
+  if (cost > state.balance) {
+    const firstPaid = diff.find(d => !d.owned);
+    logEvent('apply-failed', `need ${cost}, have ${state.balance}`);
+    showNotEnough(firstPaid ? firstPaid.item.art : null);
     return;
   }
-  if (state.balance >= CONFIG.itemPrice) {
-    setState({
-      balance: state.balance - CONFIG.itemPrice,
-      ownedExtra: { ...state.ownedExtra, [cat]: [...(state.ownedExtra[cat] || []), index] },
-      selectedExtra: { ...state.selectedExtra, [cat]: index },
-    });
-    logEvent('purchase', `${cat} #${index + 1} for ${CONFIG.itemPrice}`);
-    SFX.coin();
-    go('avatarShop');
-    bouncePreview();
+  const ownedExtra = { ...state.ownedExtra };
+  const selectedExtra = { ...state.selectedExtra };
+  diff.forEach(({ catKey, idx, owned }) => {
+    if (!owned) ownedExtra[catKey] = [...(ownedExtra[catKey] || []), idx];
+    selectedExtra[catKey] = idx;
+  });
+  setState({
+    balance: state.balance - cost,
+    ownedExtra, selectedExtra,
+    hair: previewHair(),
+    draftSelected: null, draftHair: null,
+  });
+  logEvent('apply', `${diff.length} change(s), cost ${cost}`);
+  cost > 0 ? SFX.coin() : SFX.equip();
+  go('avatarShop');
+  bouncePreview();
+}
+
+function applyTutor() {
+  const key = state.tryOnTutor;
+  const entry = TUTOR_CATALOG.find(t => t.key === key);
+  const owned = !entry.price || (state.ownedExtra.tutor || []).includes(key);
+  const cost = owned ? 0 : CONFIG.itemPrice;
+  if (cost > state.balance) {
+    logEvent('apply-failed', `tutor ${key}: need ${cost}, have ${state.balance}`);
+    showNotEnough(null, true);
     return;
   }
-  logEvent('paid-item-tap', `${cat} #${index + 1} — not enough stars`);
-  showNotEnough(item.art);
+  const ownedExtra = owned ? state.ownedExtra
+    : { ...state.ownedExtra, tutor: [...(state.ownedExtra.tutor || []), key] };
+  setState({ balance: state.balance - cost, ownedExtra, tutor: key, tryOnTutor: null, tutorGreeted: true });
+  logEvent('apply', `tutor ${key}, cost ${cost}`);
+  SFX.choose();
+  go('loading');
 }
 
 function showNotEnough(artSrc, compact = false) {
@@ -507,19 +641,12 @@ SCREENS.tutorShop = () => {
   const t = L.tutorShop;
   const shownTutor = state.tryOnTutor || state.tutor;
 
+  // back — discards the un-applied try-on (Apply commits)
   const back = img('assets/ui/back-arrow.png', '', t.back);
   tap(back, () => {
-    if (state.tryOnTutor && state.tryOnTutor !== state.tutor) {
-      const chosen = state.tryOnTutor;
-      logEvent('tutor-chosen', chosen);
-      setState({ tutor: chosen, tryOnTutor: null, tutorGreeted: true });
-      SFX.choose();
-      go('loading');
-    } else {
-      logEvent('shop-back', 'tutor');
-      setState({ tryOnTutor: null });
-      go('dashboard');
-    }
+    logEvent('shop-back', state.tryOnTutor ? `tutor (discarded ${state.tryOnTutor})` : 'tutor');
+    setState({ tryOnTutor: null });
+    go('dashboard');
   });
   root.append(back);
 
@@ -555,20 +682,10 @@ SCREENS.tutorShop = () => {
       pr.querySelector('img').style.position = 'static';
       card.append(pr);
     }
+    // tap = free try-on for everyone; stars are charged on Apply
     tap(card, () => {
-      if (tutorOwned) { logEvent('tutor-tryon', entry.key); tryOnTutor(entry.key); return; }
-      if (state.balance >= CONFIG.itemPrice) {
-        setState({
-          balance: state.balance - CONFIG.itemPrice,
-          ownedExtra: { ...state.ownedExtra, tutor: [...(state.ownedExtra.tutor || []), entry.key] },
-        });
-        logEvent('purchase', `tutor ${entry.key} for ${CONFIG.itemPrice}`);
-        SFX.coin();
-        tryOnTutor(entry.key);
-        return;
-      }
-      logEvent('paid-tutor-tap', `${entry.key} — not enough stars`);
-      showNotEnough(null, true);
+      logEvent('tutor-tryon', `${entry.key}${tutorOwned ? '' : ' (paid)'}`);
+      tryOnTutor(entry.key);
     });
     grid.append(card);
   });
@@ -665,7 +782,9 @@ function preload() {
    'assets/ui/btn-modify.png','assets/ui/star-icon.png','assets/ui/back-arrow.png','assets/ui/pedestal.png',
    'assets/popups/popup-reward.png','assets/popups/popup-notenough.png','assets/popups/popup-notenough-compact.png',
    'assets/popups/popup-skin-locked.png','assets/popups/loading-spinner.gif',
+   'assets/wear/hand-left.png','assets/wear/hand-right.png',
   ].forEach(u => urls.add(u));
+  for (let i = 1; i <= 6; i++) ['hat', 'glasses', 'eyes'].forEach(c => urls.add(`assets/wear/${c}-${i}.png`));
   urls.forEach(u => { const i = new Image(); i.src = u; });
 }
 

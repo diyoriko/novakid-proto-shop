@@ -12,7 +12,10 @@ const DEFAULT_STATE = {
   shopCategory: 'skin',     // active category in the avatar shop
   // purchases made with stars (Tweaks can top up the balance):
   ownedExtra: {},           // { category: [itemIndex, ...], tutor: [key, ...] }
-  selectedExtra: {},        // { category: itemIndex } — selected purchased item per category
+  selectedExtra: {},        // { category: itemIndex } — committed selection per category
+  // draft try-on state — nothing is charged until the kid taps Apply:
+  draftSelected: null,      // { category: itemIndex } while browsing the avatar shop
+  draftHair: null,          // hairstyle previewed on the pedestal
   tryOnTutor: null,         // tutor previewed on the pedestal in the tutor shop
   muted: false,             // sound design on/off (Tweaks menu)
   log: [],                  // research event log: {t, event, detail}
